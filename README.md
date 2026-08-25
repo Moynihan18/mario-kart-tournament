@@ -29,8 +29,33 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Deploying to GitHub Pages
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The app is entirely client-side — all tournament state lives in `localStorage` — so
+it is built as a static export and served straight from Pages.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**One-time setup:** in the repository, go to **Settings → Pages** and set
+**Source** to **GitHub Actions**. Nothing is published until this is switched over.
+
+After that, every push to `main` builds and deploys via
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). You can also
+re-deploy the current `main` from the **Actions** tab with **Run workflow**.
+
+The site lands at `https://<user>.github.io/mario-kart-tournament/`.
+
+### Notes
+
+- `next.config.ts` sets `output: 'export'` and a `basePath` of
+  `/mario-kart-tournament`, because Pages serves the project from that sub-path.
+  `npm run dev` is unaffected and still runs at the root.
+- Deploying to a custom domain or a user/org root site instead? Build with an
+  empty base path: `BASE_PATH= npm run build`.
+- Renamed the repository? Update the default in `next.config.ts` to match.
+
+To check a production build locally:
+
+```bash
+npm run build          # writes out/
+npx serve out          # note: served at the root, so the basePath won't match
+BASE_PATH= npm run build && npx serve out   # or build without it to browse locally
+```
