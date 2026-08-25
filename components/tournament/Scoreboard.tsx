@@ -40,8 +40,16 @@ export default function Scoreboard({ players, activePlayers, rounds }: Scoreboar
             >
               {rank}
             </span>
-            <span className={`flex-1 text-sm truncate ${active ? 'text-white' : 'text-white/40 line-through'}`}>
-              {player.name}
+            <span className={`flex-1 text-sm truncate flex items-center gap-1.5 ${active ? 'text-white' : 'text-white/40 line-through'}`}>
+              <span className="truncate">{player.name}</span>
+              {player.joinedAtRound > 0 && (
+                <span
+                  title={`Joined during round ${player.joinedAtRound}`}
+                  className="shrink-0 text-[10px] font-bold text-mk-blue"
+                >
+                  R{player.joinedAtRound}
+                </span>
+              )}
             </span>
             <span className="text-sm font-bold tabular-nums text-white/80">
               {score > 0 ? score.toLocaleString() : '—'}

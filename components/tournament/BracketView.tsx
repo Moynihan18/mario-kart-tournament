@@ -8,6 +8,7 @@ interface BracketViewProps {
   currentRoundIndex: number;
   onScoreChange: (heatId: string, playerId: string, score: number) => void;
   onCompleteHeat: (heatId: string) => void;
+  onSetActiveHeat: (heatId: string | null) => void;
   onProceedToTransition: () => void;
 }
 
@@ -16,6 +17,7 @@ export default function BracketView({
   currentRoundIndex,
   onScoreChange,
   onCompleteHeat,
+  onSetActiveHeat,
   onProceedToTransition,
 }: BracketViewProps) {
   const currentRound = rounds[currentRoundIndex];
@@ -29,6 +31,8 @@ export default function BracketView({
           {rounds.map((round, roundIdx) => {
             const isCurrent = roundIdx === currentRoundIndex;
             const isPast = roundIdx < currentRoundIndex;
+            const runningIdx = round.heats.findIndex((h) => h.id === round.activeHeatId);
+            const runningHeatNumber = isCurrent && runningIdx >= 0 ? runningIdx + 1 : null;
 
             return (
               <div
@@ -48,8 +52,12 @@ export default function BracketView({
                   <span className="text-sm">
                     {round.isFinal ? '🏆 FINAL' : `Round ${round.roundNumber}`}
                   </span>
-                  {isCurrent && !round.isFinal && (
-                    <span className="block text-xs font-normal opacity-70">Current</span>
+                  {isCurrent && (
+                    <span className="block text-xs font-normal opacity-70">
+                      {runningHeatNumber
+                        ? `Heat ${runningHeatNumber} running`
+                        : 'Pick the heat you’re running'}
+                    </span>
                   )}
                 </div>
 
@@ -59,10 +67,18 @@ export default function BracketView({
                     key={heat.id}
                     heat={heat}
                     heatNumber={heatIdx + 1}
+                    roundNumber={round.roundNumber}
                     isActive={isCurrent}
                     isPast={isPast}
+                    isRunning={isCurrent && round.activeHeatId === heat.id}
+                    otherHeatRunning={
+                      isCurrent && round.activeHeatId !== null && round.activeHeatId !== heat.id
+                    }
                     onScoreChange={(playerId, score) => onScoreChange(heat.id, playerId, score)}
                     onComplete={() => onCompleteHeat(heat.id)}
+                    onToggleRunning={() =>
+                      onSetActiveHeat(round.activeHeatId === heat.id ? null : heat.id)
+                    }
                   />
                 ))}
 

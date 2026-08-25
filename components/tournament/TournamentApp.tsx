@@ -5,6 +5,7 @@ import SignupPhase from './SignupPhase';
 import BracketView from './BracketView';
 import Scoreboard from './Scoreboard';
 import RoundTransition from './RoundTransition';
+import AddPlayerPanel from './AddPlayerPanel';
 import { computeCumulativeScores } from '@/lib/tournament';
 
 export default function TournamentApp() {
@@ -78,6 +79,8 @@ export default function TournamentApp() {
   }
 
   // tournament phase
+  const currentRound = state.rounds[state.currentRoundIndex];
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Main bracket area */}
@@ -90,9 +93,14 @@ export default function TournamentApp() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-white/40 text-sm">
-              Round {state.currentRoundIndex + 1} of{' '}
-              {state.rounds[state.currentRoundIndex]?.isFinal ? 'Final' : '?'}
+              Round {state.currentRoundIndex + 1} of {currentRound?.isFinal ? 'Final' : '?'}
             </span>
+            {currentRound && (
+              <span className="text-white/30 text-sm border-l border-mk-border pl-3">
+                {currentRound.heats.filter((h) => h.completed).length}/{currentRound.heats.length}{' '}
+                heats locked · {state.activePlayers.length} racers
+              </span>
+            )}
             <button
               onClick={() => dispatch({ type: 'RESET' })}
               className="text-xs text-white/30 hover:text-white/60 transition-colors border border-mk-border px-3 py-1.5 rounded-lg"
@@ -109,8 +117,8 @@ export default function TournamentApp() {
             dispatch({ type: 'UPDATE_SCORE', heatId, playerId, score })
           }
           onCompleteHeat={(heatId) => dispatch({ type: 'COMPLETE_HEAT', heatId })}
+          onSetActiveHeat={(heatId) => dispatch({ type: 'SET_ACTIVE_HEAT', heatId })}
           onProceedToTransition={() => {
-            const currentRound = state.rounds[state.currentRoundIndex];
             if (currentRound?.isFinal) {
               dispatch({ type: 'FINALIZE_TOURNAMENT' });
             } else {
@@ -120,8 +128,18 @@ export default function TournamentApp() {
         />
       </div>
 
-      {/* Sidebar scoreboard */}
-      <div className="w-56 shrink-0 border-l border-mk-border bg-mk-surface overflow-y-auto p-4">
+      {/* Sidebar: standings + mid-tournament entry */}
+      <div className="w-64 shrink-0 border-l border-mk-border bg-mk-surface overflow-y-auto p-4 space-y-4">
+        {currentRound && (
+          <AddPlayerPanel
+            round={currentRound}
+            onAddLatePlayer={(name, placement) =>
+              dispatch({ type: 'ADD_LATE_PLAYER', name, placement })
+            }
+            onRebalance={() => dispatch({ type: 'REBALANCE_HEATS' })}
+          />
+        )}
+
         <Scoreboard
           players={state.players}
           activePlayers={state.activePlayers}

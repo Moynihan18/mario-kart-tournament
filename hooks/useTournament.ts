@@ -1,12 +1,14 @@
 'use client';
 
 import { useReducer, useEffect } from 'react';
-import { TournamentState, Player, Heat, HeatScore } from '@/lib/types';
+import { TournamentState, Player, Heat, HeatScore, Round, Placement } from '@/lib/types';
 import {
   shuffleAssign,
   seedAssign,
   computeCumulativeScores,
   getAdvancingPlayers,
+  addPlayerToHeat,
+  reconfigureOpenHeats,
 } from '@/lib/tournament';
 
 const STORAGE_KEY = 'mk-tournament-state';
@@ -23,6 +25,9 @@ export type TournamentAction =
   | { type: 'ADD_PLAYER'; name: string }
   | { type: 'REMOVE_PLAYER'; id: string }
   | { type: 'START_TOURNAMENT'; heatSize: 2 | 3 | 4 }
+  | { type: 'ADD_LATE_PLAYER'; name: string; placement: Placement }
+  | { type: 'SET_ACTIVE_HEAT'; heatId: string | null }
+  | { type: 'REBALANCE_HEATS' }
   | { type: 'UPDATE_SCORE'; heatId: string; playerId: string; score: number }
   | { type: 'COMPLETE_HEAT'; heatId: string }
   | { type: 'PROCEED_TO_TRANSITION' }
@@ -30,12 +35,20 @@ export type TournamentAction =
   | { type: 'FINALIZE_TOURNAMENT' }
   | { type: 'RESET' };
 
+/** Apply a change to the round in progress, leaving every other round alone. */
+function mapCurrentRound(
+  state: TournamentState,
+  fn: (round: Round) => Round
+): Round[] {
+  return state.rounds.map((round, idx) => (idx === state.currentRoundIndex ? fn(round) : round));
+}
+
 function reducer(state: TournamentState, action: TournamentAction): TournamentState {
   switch (action.type) {
     case 'ADD_PLAYER': {
       const trimmed = action.name.trim();
       if (!trimmed) return state;
-      const player: Player = { id: crypto.randomUUID(), name: trimmed };
+      const player: Player = { id: crypto.randomUUID(), name: trimmed, joinedAtRound: 0 };
       return { ...state, players: [...state.players, player] };
     }
 
@@ -45,11 +58,12 @@ function reducer(state: TournamentState, action: TournamentAction): TournamentSt
 
     case 'START_TOURNAMENT': {
       const heats = shuffleAssign(state.players, action.heatSize);
-      const round = {
+      const round: Round = {
         id: crypto.randomUUID(),
         roundNumber: 1,
         heatSize: action.heatSize,
         heats,
+        activeHeatId: null,
         advanceCount: 1, // will be set at transition
         isFinal: false,
         completed: false,
@@ -63,11 +77,61 @@ function reducer(state: TournamentState, action: TournamentAction): TournamentSt
       };
     }
 
+    case 'ADD_LATE_PLAYER': {
+      const trimmed = action.name.trim();
+      if (!trimmed || state.phase !== 'tournament') return state;
+      const currentRound = state.rounds[state.currentRoundIndex];
+      if (!currentRound) return state;
+
+      const player: Player = {
+        id: crypto.randomUUID(),
+        name: trimmed,
+        joinedAtRound: currentRound.roundNumber,
+      };
+
+      let updated: Round;
+      if (action.placement.mode === 'heat') {
+        updated = addPlayerToHeat(currentRound, action.placement.heatId, player);
+        // The chosen heat started or got locked in the meantime — fall back to a
+        // rebuild so the new racer always ends up somewhere.
+        if (updated === currentRound) updated = reconfigureOpenHeats(currentRound, [player]);
+      } else {
+        updated = reconfigureOpenHeats(currentRound, [player]);
+      }
+
+      return {
+        ...state,
+        players: [...state.players, player],
+        activePlayers: [...state.activePlayers, player],
+        rounds: mapCurrentRound(state, () => updated),
+      };
+    }
+
+    case 'SET_ACTIVE_HEAT': {
+      const currentRound = state.rounds[state.currentRoundIndex];
+      if (!currentRound) return state;
+      // Locked-in heats can't be put back on the track.
+      if (action.heatId !== null) {
+        const target = currentRound.heats.find((h) => h.id === action.heatId);
+        if (!target || target.completed) return state;
+      }
+      return {
+        ...state,
+        rounds: mapCurrentRound(state, (round) => ({ ...round, activeHeatId: action.heatId })),
+      };
+    }
+
+    case 'REBALANCE_HEATS': {
+      const currentRound = state.rounds[state.currentRoundIndex];
+      if (!currentRound || state.phase !== 'tournament') return state;
+      return { ...state, rounds: mapCurrentRound(state, (round) => reconfigureOpenHeats(round)) };
+    }
+
     case 'UPDATE_SCORE': {
-      const rounds = state.rounds.map((round, idx) => {
-        if (idx !== state.currentRoundIndex) return round;
+      const rounds = mapCurrentRound(state, (round) => {
         const heats: Heat[] = round.heats.map((heat) => {
-          if (heat.id !== action.heatId) return heat;
+          // A locked-in heat's result is final.
+          if (heat.id !== action.heatId || heat.completed) return heat;
           const existing = heat.scores.find((s) => s.playerId === action.playerId);
           let scores: HeatScore[];
           if (existing) {
@@ -85,21 +149,23 @@ function reducer(state: TournamentState, action: TournamentAction): TournamentSt
     }
 
     case 'COMPLETE_HEAT': {
-      const rounds = state.rounds.map((round, idx) => {
-        if (idx !== state.currentRoundIndex) return round;
+      const rounds = mapCurrentRound(state, (round) => {
         const heats: Heat[] = round.heats.map((heat) =>
           heat.id === action.heatId ? { ...heat, completed: true } : heat
         );
-        return { ...round, heats };
+        // Locking in the heat that was running frees the slot for the next one.
+        const activeHeatId = round.activeHeatId === action.heatId ? null : round.activeHeatId;
+        return { ...round, heats, activeHeatId };
       });
       return { ...state, rounds };
     }
 
     case 'PROCEED_TO_TRANSITION': {
-      const rounds = state.rounds.map((round, idx) => {
-        if (idx !== state.currentRoundIndex) return round;
-        return { ...round, completed: true };
-      });
+      const rounds = mapCurrentRound(state, (round) => ({
+        ...round,
+        activeHeatId: null,
+        completed: true,
+      }));
       return { ...state, phase: 'roundTransition', rounds };
     }
 
@@ -116,11 +182,12 @@ function reducer(state: TournamentState, action: TournamentAction): TournamentSt
       const nextHeatCount = heats.length;
       const isFinal = nextHeatCount === 1;
 
-      const nextRound = {
+      const nextRound: Round = {
         id: crypto.randomUUID(),
         roundNumber: currentRound.roundNumber + 1,
         heatSize: action.heatSize,
         heats,
+        activeHeatId: null,
         advanceCount: action.advanceCount,
         isFinal,
         completed: false,
@@ -148,12 +215,25 @@ function reducer(state: TournamentState, action: TournamentAction): TournamentSt
   }
 }
 
+/** Backfill fields added after a tournament may already have been saved. */
+function normalize(state: TournamentState): TournamentState {
+  return {
+    ...state,
+    players: (state.players ?? []).map((p) => ({ ...p, joinedAtRound: p.joinedAtRound ?? 0 })),
+    activePlayers: (state.activePlayers ?? []).map((p) => ({
+      ...p,
+      joinedAtRound: p.joinedAtRound ?? 0,
+    })),
+    rounds: (state.rounds ?? []).map((r) => ({ ...r, activeHeatId: r.activeHeatId ?? null })),
+  };
+}
+
 function loadFromStorage(): TournamentState {
   if (typeof window === 'undefined') return initialState;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return initialState;
-    return JSON.parse(raw) as TournamentState;
+    return normalize(JSON.parse(raw) as TournamentState);
   } catch {
     return initialState;
   }

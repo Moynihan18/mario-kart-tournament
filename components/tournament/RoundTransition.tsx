@@ -2,7 +2,13 @@
 
 import { useState } from 'react';
 import { Round, Player } from '@/lib/types';
-import { computeCumulativeScores, computeRoundScores, getAdvancingPlayers, predictNextHeatCount } from '@/lib/tournament';
+import {
+  computeCumulativeScores,
+  computeRoundScores,
+  getAdvancingPlayers,
+  predictAdvancingCount,
+  predictNextHeatCount,
+} from '@/lib/tournament';
 
 interface RoundTransitionProps {
   completedRound: Round;
@@ -32,11 +38,9 @@ export default function RoundTransition({
   // Simulate advancing players based on selected advanceCount
   const simulatedRound = { ...completedRound, advanceCount };
   const advancingIds = new Set(getAdvancingPlayers(simulatedRound).map((p) => p.id));
+  const advancingCount = predictAdvancingCount(completedRound, advanceCount);
   const nextHeatCount = predictNextHeatCount(completedRound, advanceCount, nextHeatSize);
   const wouldBeFinal = nextHeatCount === 1;
-
-  const ranked = [...activePlayers]
-    .sort((a, b) => (cumulativeScores.get(b.id) ?? 0) - (cumulativeScores.get(a.id) ?? 0));
 
   // Show all players (active + eliminated already) for full standings
   const allRanked = [...players]
@@ -126,7 +130,8 @@ export default function RoundTransition({
               ))}
             </div>
             <p className="text-xs text-white/40">
-              {completedRound.heats.length} heat{completedRound.heats.length > 1 ? 's' : ''} × {advanceCount} advancing = {completedRound.heats.length * advanceCount} players
+              {completedRound.heats.length} heat{completedRound.heats.length > 1 ? 's' : ''} × up to{' '}
+              {advanceCount} advancing = {advancingCount} player{advancingCount === 1 ? '' : 's'}
             </p>
           </div>
 
@@ -153,8 +158,8 @@ export default function RoundTransition({
           {/* Preview */}
           <div className={`rounded-xl px-4 py-3 text-sm ${wouldBeFinal ? 'bg-mk-yellow/10 border border-mk-yellow/30 text-mk-yellow' : 'bg-mk-blue/10 border border-mk-blue/30 text-mk-blue'}`}>
             {wouldBeFinal
-              ? `🏆 This will be the FINAL round — all ${completedRound.heats.length * advanceCount} players in 1 heat!`
-              : `Next round: ${completedRound.heats.length * advanceCount} players → ${nextHeatCount} heat${nextHeatCount > 1 ? 's' : ''}`}
+              ? `🏆 This will be the FINAL round — all ${advancingCount} players in 1 heat!`
+              : `Next round: ${advancingCount} players → ${nextHeatCount} heat${nextHeatCount > 1 ? 's' : ''}`}
           </div>
         </div>
 
