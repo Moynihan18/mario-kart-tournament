@@ -1,7 +1,15 @@
 'use client';
 
 import { useReducer, useEffect } from 'react';
-import { TournamentState, Player, Heat, HeatScore, Round, Placement } from '@/lib/types';
+import {
+  TournamentState,
+  Player,
+  Heat,
+  HeatScore,
+  Round,
+  Placement,
+  LeaderboardEntry,
+} from '@/lib/types';
 import {
   shuffleAssign,
   seedAssign,
@@ -10,8 +18,10 @@ import {
   addPlayerToHeat,
   reconfigureOpenHeats,
 } from '@/lib/tournament';
+import { recordTournament, sortLeaderboard } from '@/lib/leaderboard';
 
 const STORAGE_KEY = 'mk-tournament-state';
+const LEADERBOARD_KEY = 'mk-leaderboard';
 
 const initialState: TournamentState = {
   phase: 'signup',
@@ -22,7 +32,7 @@ const initialState: TournamentState = {
 };
 
 export type TournamentAction =
-  | { type: 'HYDRATE'; state: TournamentState }
+  | { type: 'HYDRATE'; state: TournamentState; leaderboard: LeaderboardEntry[] }
   | { type: 'ADD_PLAYER'; name: string }
   | { type: 'REMOVE_PLAYER'; id: string }
   | { type: 'START_TOURNAMENT'; heatSize: 2 | 3 | 4 }
@@ -33,7 +43,9 @@ export type TournamentAction =
   | { type: 'COMPLETE_HEAT'; heatId: string }
   | { type: 'PROCEED_TO_TRANSITION' }
   | { type: 'START_NEXT_ROUND'; heatSize: 2 | 3 | 4; advanceCount: number }
-  | { type: 'FINALIZE_TOURNAMENT' }
+  // `at` is supplied by the caller so the reducer stays free of clock reads.
+  | { type: 'FINALIZE_TOURNAMENT'; at: string }
+  | { type: 'CLEAR_LEADERBOARD' }
   | { type: 'RESET' };
 
 /** Apply a change to the round in progress, leaving every other round alone. */
@@ -204,7 +216,16 @@ function reducer(state: TournamentState, action: TournamentAction): TournamentSt
     }
 
     case 'FINALIZE_TOURNAMENT': {
-      return { ...state, phase: 'complete' };
+      if (state.phase === 'complete') return state;
+      // The last round is closed out here rather than through a transition, so
+      // mark it complete — cumulative scores skip unfinished rounds, and without
+      // this the deciding round would never count towards anyone's total.
+      const rounds = state.rounds.map((round, idx) =>
+        idx === state.currentRoundIndex
+          ? { ...round, activeHeatId: null, completed: true }
+          : round
+      );
+      return { ...state, phase: 'complete', rounds };
     }
 
     case 'RESET': {
@@ -240,18 +261,62 @@ function loadFromStorage(): TournamentState {
   }
 }
 
+/** Only entries that still look like leaderboard rows survive a read-back. */
+function normalizeLeaderboard(entries: unknown): LeaderboardEntry[] {
+  if (!Array.isArray(entries)) return [];
+  return sortLeaderboard(
+    entries.filter(
+      (e): e is LeaderboardEntry =>
+        !!e && typeof e.name === 'string' && typeof e.totalScore === 'number'
+    )
+  );
+}
+
+function loadLeaderboardFromStorage(): LeaderboardEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(LEADERBOARD_KEY);
+    if (!raw) return [];
+    return normalizeLeaderboard(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
 interface TournamentStore {
   /** False until the saved tournament has been read back from localStorage. */
   hydrated: boolean;
   tournament: TournamentState;
+  leaderboard: LeaderboardEntry[];
 }
 
-const initialStore: TournamentStore = { hydrated: false, tournament: initialState };
+const initialStore: TournamentStore = {
+  hydrated: false,
+  tournament: initialState,
+  leaderboard: [],
+};
 
 function storeReducer(store: TournamentStore, action: TournamentAction): TournamentStore {
-  if (action.type === 'HYDRATE') return { hydrated: true, tournament: action.state };
+  if (action.type === 'HYDRATE') {
+    return { hydrated: true, tournament: action.state, leaderboard: action.leaderboard };
+  }
+  if (action.type === 'CLEAR_LEADERBOARD') {
+    return store.leaderboard.length === 0 ? store : { ...store, leaderboard: [] };
+  }
+
   const tournament = reducer(store.tournament, action);
-  return tournament === store.tournament ? store : { ...store, tournament };
+  // Nothing moved — in particular, finalizing an already-finished tournament is
+  // a no-op, so its results can never be banked twice.
+  if (tournament === store.tournament) return store;
+
+  if (action.type === 'FINALIZE_TOURNAMENT') {
+    return {
+      ...store,
+      tournament,
+      leaderboard: recordTournament(store.leaderboard, tournament, action.at),
+    };
+  }
+  return { ...store, tournament };
 }
 
 export function useTournament() {
@@ -262,7 +327,11 @@ export function useTournament() {
   const [store, dispatch] = useReducer(storeReducer, initialStore);
 
   useEffect(() => {
-    dispatch({ type: 'HYDRATE', state: loadFromStorage() });
+    dispatch({
+      type: 'HYDRATE',
+      state: loadFromStorage(),
+      leaderboard: loadLeaderboardFromStorage(),
+    });
   }, []);
 
   useEffect(() => {
@@ -274,7 +343,23 @@ export function useTournament() {
     } catch {
       // storage quota exceeded — silently ignore
     }
-  }, [store]);
+  }, [store.hydrated, store.tournament]);
 
-  return { state: store.tournament, dispatch, hydrated: store.hydrated };
+  useEffect(() => {
+    // Kept under its own key so resetting or corrupting a tournament can't take
+    // the accumulated history down with it.
+    if (!store.hydrated) return;
+    try {
+      localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(store.leaderboard));
+    } catch {
+      // storage quota exceeded — silently ignore
+    }
+  }, [store.hydrated, store.leaderboard]);
+
+  return {
+    state: store.tournament,
+    leaderboard: store.leaderboard,
+    dispatch,
+    hydrated: store.hydrated,
+  };
 }

@@ -36,6 +36,22 @@ export type Placement =
   | { mode: 'heat'; heatId: string }
   | { mode: 'reconfigure' };
 
+/**
+ * One racer's running total across every tournament played on this device.
+ * Racers are matched between tournaments by name (see `leaderboardKey`).
+ */
+export interface LeaderboardEntry {
+  name: string;
+  totalScore: number;
+  tournamentsPlayed: number;
+  /** Tournaments finished in first place. */
+  wins: number;
+  /** Best finishing position ever reached. */
+  bestFinish: number;
+  /** ISO date of the most recent tournament they took part in. */
+  lastPlayed: string;
+}
+
 export interface TournamentState {
   phase: TournamentPhase;
   players: Player[];

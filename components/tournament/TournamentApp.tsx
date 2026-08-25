@@ -6,10 +6,11 @@ import BracketView from './BracketView';
 import Scoreboard from './Scoreboard';
 import RoundTransition from './RoundTransition';
 import AddPlayerPanel from './AddPlayerPanel';
-import { computeCumulativeScores } from '@/lib/tournament';
+import Leaderboard from './Leaderboard';
+import { rankTournament, tournamentGains } from '@/lib/leaderboard';
 
 export default function TournamentApp() {
-  const { state, dispatch, hydrated } = useTournament();
+  const { state, leaderboard, dispatch, hydrated } = useTournament();
 
   // Rendered on the server and on the first client render alike, while any saved
   // tournament is read back from localStorage.
@@ -26,9 +27,11 @@ export default function TournamentApp() {
     return (
       <SignupPhase
         players={state.players}
+        leaderboard={leaderboard}
         onAddPlayer={(name) => dispatch({ type: 'ADD_PLAYER', name })}
         onRemovePlayer={(id) => dispatch({ type: 'REMOVE_PLAYER', id })}
         onStartTournament={(heatSize) => dispatch({ type: 'START_TOURNAMENT', heatSize })}
+        onClearLeaderboard={() => dispatch({ type: 'CLEAR_LEADERBOARD' })}
       />
     );
   }
@@ -44,19 +47,18 @@ export default function TournamentApp() {
         onStartNextRound={(heatSize, advanceCount) =>
           dispatch({ type: 'START_NEXT_ROUND', heatSize, advanceCount })
         }
-        onFinalize={() => dispatch({ type: 'FINALIZE_TOURNAMENT' })}
+        onFinalize={() => dispatch({ type: 'FINALIZE_TOURNAMENT', at: new Date().toISOString() })}
       />
     );
   }
 
   if (state.phase === 'complete') {
-    const cumulativeScores = computeCumulativeScores(state.rounds);
-    const winner = [...state.players].sort(
-      (a, b) => (cumulativeScores.get(b.id) ?? 0) - (cumulativeScores.get(a.id) ?? 0)
-    )[0];
+    const results = rankTournament(state.players, state.rounds);
+    const gains = tournamentGains(results);
+    const winner = results[0];
 
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
+      <div className="min-h-screen flex flex-col items-center px-4 py-12">
         <div className="w-full max-w-md space-y-6">
           <div className="text-center space-y-3">
             <div className="text-6xl">🏆</div>
@@ -64,12 +66,15 @@ export default function TournamentApp() {
             {winner && (
               <div className="bg-mk-yellow/10 border border-mk-yellow/30 rounded-2xl p-6">
                 <p className="text-white/60 text-sm mb-1">Winner</p>
-                <p className="text-3xl font-bold text-mk-yellow">{winner.name}</p>
+                <p className="text-3xl font-bold text-mk-yellow">{winner.player.name}</p>
                 <p className="text-white/50 text-sm mt-1">
-                  {(cumulativeScores.get(winner.id) ?? 0).toLocaleString()} points
+                  {winner.score.toLocaleString()} points
                 </p>
               </div>
             )}
+            <p className="text-green-400/80 text-sm">
+              ✓ Results banked — every racer&apos;s points were added to the leaderboard.
+            </p>
           </div>
 
           <Scoreboard
@@ -77,6 +82,8 @@ export default function TournamentApp() {
             activePlayers={state.players}
             rounds={state.rounds}
           />
+
+          <Leaderboard entries={leaderboard} gains={gains} />
 
           <button
             onClick={() => dispatch({ type: 'RESET' })}
@@ -131,7 +138,7 @@ export default function TournamentApp() {
           onSetActiveHeat={(heatId) => dispatch({ type: 'SET_ACTIVE_HEAT', heatId })}
           onProceedToTransition={() => {
             if (currentRound?.isFinal) {
-              dispatch({ type: 'FINALIZE_TOURNAMENT' });
+              dispatch({ type: 'FINALIZE_TOURNAMENT', at: new Date().toISOString() });
             } else {
               dispatch({ type: 'PROCEED_TO_TRANSITION' });
             }

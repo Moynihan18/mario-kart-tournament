@@ -1,20 +1,26 @@
 'use client';
 
 import { useState } from 'react';
-import { Player } from '@/lib/types';
+import { Player, LeaderboardEntry } from '@/lib/types';
+import { leaderboardKey } from '@/lib/leaderboard';
+import Leaderboard from './Leaderboard';
 
 interface SignupPhaseProps {
   players: Player[];
+  leaderboard: LeaderboardEntry[];
   onAddPlayer: (name: string) => void;
   onRemovePlayer: (id: string) => void;
   onStartTournament: (heatSize: 2 | 3 | 4) => void;
+  onClearLeaderboard: () => void;
 }
 
 export default function SignupPhase({
   players,
+  leaderboard,
   onAddPlayer,
   onRemovePlayer,
   onStartTournament,
+  onClearLeaderboard,
 }: SignupPhaseProps) {
   const [input, setInput] = useState('');
   const [heatSize, setHeatSize] = useState<2 | 3 | 4>(4);
@@ -27,6 +33,11 @@ export default function SignupPhase({
 
   const hasOddRemainder = players.length > 0 && players.length % heatSize === 1;
   const canStart = players.length >= 4 && players.length >= heatSize;
+
+  // Racers with history who aren't in this tournament yet. Adding them by tap
+  // keeps the spelling identical, so their points keep landing on one entry.
+  const signedUp = new Set(players.map((p) => leaderboardKey(p.name)));
+  const returning = leaderboard.filter((e) => !signedUp.has(leaderboardKey(e.name)));
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
@@ -87,6 +98,25 @@ export default function SignupPhase({
           {players.length === 0 && (
             <p className="text-white/30 text-sm text-center py-2">No players yet — add at least 4</p>
           )}
+
+          {/* Returning racers, one tap to sign back up */}
+          {returning.length > 0 && (
+            <div className="space-y-2 pt-1">
+              <p className="text-xs text-white/40">Returning racers</p>
+              <div className="flex flex-wrap gap-1.5">
+                {returning.map((entry) => (
+                  <button
+                    key={leaderboardKey(entry.name)}
+                    onClick={() => onAddPlayer(entry.name)}
+                    title={`${entry.totalScore.toLocaleString()} points across ${entry.tournamentsPlayed} tournament${entry.tournamentsPlayed === 1 ? '' : 's'}`}
+                    className="text-xs bg-mk-dark border border-mk-border rounded-lg px-2.5 py-1.5 text-white/60 hover:border-mk-yellow/60 hover:text-white transition-all active:scale-95"
+                  >
+                    + {entry.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Heat size */}
@@ -124,6 +154,9 @@ export default function SignupPhase({
         >
           {canStart ? '🏁 Start Tournament' : `Add ${Math.max(0, 4 - players.length)} more player${4 - players.length === 1 ? '' : 's'}`}
         </button>
+
+        {/* Running totals from every tournament finished on this device */}
+        <Leaderboard entries={leaderboard} onClear={onClearLeaderboard} />
       </div>
     </div>
   );
