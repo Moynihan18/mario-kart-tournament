@@ -22,6 +22,7 @@ const initialState: TournamentState = {
 };
 
 export type TournamentAction =
+  | { type: 'HYDRATE'; state: TournamentState }
   | { type: 'ADD_PLAYER'; name: string }
   | { type: 'REMOVE_PLAYER'; id: string }
   | { type: 'START_TOURNAMENT'; heatSize: 2 | 3 | 4 }
@@ -239,16 +240,41 @@ function loadFromStorage(): TournamentState {
   }
 }
 
+interface TournamentStore {
+  /** False until the saved tournament has been read back from localStorage. */
+  hydrated: boolean;
+  tournament: TournamentState;
+}
+
+const initialStore: TournamentStore = { hydrated: false, tournament: initialState };
+
+function storeReducer(store: TournamentStore, action: TournamentAction): TournamentStore {
+  if (action.type === 'HYDRATE') return { hydrated: true, tournament: action.state };
+  const tournament = reducer(store.tournament, action);
+  return tournament === store.tournament ? store : { ...store, tournament };
+}
+
 export function useTournament() {
-  const [state, dispatch] = useReducer(reducer, initialState, loadFromStorage);
+  // The server has no localStorage, so the saved tournament is read after mount
+  // rather than during the first render — otherwise the server and the client
+  // would render different screens and React would throw the tree out on
+  // hydration. Components show a placeholder while `hydrated` is false.
+  const [store, dispatch] = useReducer(storeReducer, initialStore);
 
   useEffect(() => {
+    dispatch({ type: 'HYDRATE', state: loadFromStorage() });
+  }, []);
+
+  useEffect(() => {
+    // Don't write before the read-back lands, or the empty starting state would
+    // overwrite the saved tournament.
+    if (!store.hydrated) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(store.tournament));
     } catch {
       // storage quota exceeded — silently ignore
     }
-  }, [state]);
+  }, [store]);
 
-  return { state, dispatch };
+  return { state: store.tournament, dispatch, hydrated: store.hydrated };
 }

@@ -9,7 +9,18 @@ import AddPlayerPanel from './AddPlayerPanel';
 import { computeCumulativeScores } from '@/lib/tournament';
 
 export default function TournamentApp() {
-  const { state, dispatch } = useTournament();
+  const { state, dispatch, hydrated } = useTournament();
+
+  // Rendered on the server and on the first client render alike, while any saved
+  // tournament is read back from localStorage.
+  if (!hydrated) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3">
+        <div className="text-6xl animate-pulse">🏎️</div>
+        <p className="text-white/30 text-sm">Loading tournament…</p>
+      </div>
+    );
+  }
 
   if (state.phase === 'signup') {
     return (
