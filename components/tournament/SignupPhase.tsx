@@ -8,19 +8,26 @@ import Leaderboard from './Leaderboard';
 interface SignupPhaseProps {
   players: Player[];
   leaderboard: LeaderboardEntry[];
+  /** Description of the tournament a reset wiped, if one can still be restored. */
+  undoDescription: string | null;
   onAddPlayer: (name: string) => void;
   onRemovePlayer: (id: string) => void;
   onStartTournament: (heatSize: 2 | 3 | 4) => void;
   onClearLeaderboard: () => void;
+  onUndoReset: () => void;
+  onDismissUndo: () => void;
 }
 
 export default function SignupPhase({
   players,
   leaderboard,
+  undoDescription,
   onAddPlayer,
   onRemovePlayer,
   onStartTournament,
   onClearLeaderboard,
+  onUndoReset,
+  onDismissUndo,
 }: SignupPhaseProps) {
   const [input, setInput] = useState('');
   const [heatSize, setHeatSize] = useState<2 | 3 | 4>(4);
@@ -49,6 +56,30 @@ export default function SignupPhase({
       </div>
 
       <div className="w-full max-w-md space-y-6">
+        {/* Take back the reset that just wiped a tournament */}
+        {undoDescription && (
+          <div className="bg-mk-blue/10 border border-mk-blue/40 rounded-2xl px-5 py-4 flex items-center gap-3">
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-white">Tournament reset</p>
+              <p className="text-xs text-white/50 mt-0.5">{undoDescription}</p>
+            </div>
+            <button
+              onClick={onUndoReset}
+              className="shrink-0 bg-mk-blue text-white font-bold text-sm rounded-xl px-4 py-2.5 hover:brightness-125 transition-all active:scale-95"
+            >
+              ↩ Undo
+            </button>
+            <button
+              onClick={onDismissUndo}
+              aria-label="Dismiss"
+              title="Dismiss"
+              className="shrink-0 text-white/30 hover:text-white/70 transition-colors text-lg leading-none px-1"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Player input */}
         <div className="bg-mk-surface border border-mk-border rounded-2xl p-6 space-y-4">
           <h2 className="text-lg font-semibold text-white/80">Add Players</h2>

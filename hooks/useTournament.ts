@@ -22,6 +22,7 @@ import { recordTournament, sortLeaderboard } from '@/lib/leaderboard';
 
 const STORAGE_KEY = 'mk-tournament-state';
 const LEADERBOARD_KEY = 'mk-leaderboard';
+const UNDO_KEY = 'mk-tournament-undo';
 
 const initialState: TournamentState = {
   phase: 'signup',
@@ -32,7 +33,12 @@ const initialState: TournamentState = {
 };
 
 export type TournamentAction =
-  | { type: 'HYDRATE'; state: TournamentState; leaderboard: LeaderboardEntry[] }
+  | {
+      type: 'HYDRATE';
+      state: TournamentState;
+      leaderboard: LeaderboardEntry[];
+      undo: TournamentState | null;
+    }
   | { type: 'ADD_PLAYER'; name: string }
   | { type: 'REMOVE_PLAYER'; id: string }
   | { type: 'START_TOURNAMENT'; heatSize: 2 | 3 | 4 }
@@ -46,7 +52,9 @@ export type TournamentAction =
   // `at` is supplied by the caller so the reducer stays free of clock reads.
   | { type: 'FINALIZE_TOURNAMENT'; at: string }
   | { type: 'CLEAR_LEADERBOARD' }
-  | { type: 'RESET' };
+  | { type: 'RESET' }
+  | { type: 'UNDO_RESET' }
+  | { type: 'DISMISS_UNDO' };
 
 /** Apply a change to the round in progress, leaving every other round alone. */
 function mapCurrentRound(
@@ -283,25 +291,59 @@ function loadLeaderboardFromStorage(): LeaderboardEntry[] {
   }
 }
 
+function loadUndoFromStorage(): TournamentState | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(UNDO_KEY);
+    if (!raw) return null;
+    return normalize(JSON.parse(raw) as TournamentState);
+  } catch {
+    return null;
+  }
+}
+
+/** A pristine tournament is not worth offering to restore. */
+function isRestorable(state: TournamentState): boolean {
+  return state.phase !== 'signup' || state.players.length > 0;
+}
+
 interface TournamentStore {
   /** False until the saved tournament has been read back from localStorage. */
   hydrated: boolean;
   tournament: TournamentState;
   leaderboard: LeaderboardEntry[];
+  /**
+   * The tournament as it stood just before the last reset, so the reset can be
+   * taken back. One level deep: a second reset replaces it.
+   */
+  undo: TournamentState | null;
 }
 
 const initialStore: TournamentStore = {
   hydrated: false,
   tournament: initialState,
   leaderboard: [],
+  undo: null,
 };
 
 function storeReducer(store: TournamentStore, action: TournamentAction): TournamentStore {
   if (action.type === 'HYDRATE') {
-    return { hydrated: true, tournament: action.state, leaderboard: action.leaderboard };
+    return {
+      hydrated: true,
+      tournament: action.state,
+      leaderboard: action.leaderboard,
+      undo: action.undo,
+    };
   }
   if (action.type === 'CLEAR_LEADERBOARD') {
     return store.leaderboard.length === 0 ? store : { ...store, leaderboard: [] };
+  }
+  if (action.type === 'UNDO_RESET') {
+    if (!store.undo) return store;
+    return { ...store, tournament: store.undo, undo: null };
+  }
+  if (action.type === 'DISMISS_UNDO') {
+    return store.undo === null ? store : { ...store, undo: null };
   }
 
   const tournament = reducer(store.tournament, action);
@@ -315,6 +357,18 @@ function storeReducer(store: TournamentStore, action: TournamentAction): Tournam
       tournament,
       leaderboard: recordTournament(store.leaderboard, tournament, action.at),
     };
+  }
+  if (action.type === 'RESET') {
+    // Hold on to what was wiped so it can be brought back.
+    return {
+      ...store,
+      tournament,
+      undo: isRestorable(store.tournament) ? store.tournament : null,
+    };
+  }
+  if (action.type === 'START_TOURNAMENT') {
+    // Committing to a new tournament retires the old one for good.
+    return { ...store, tournament, undo: null };
   }
   return { ...store, tournament };
 }
@@ -331,6 +385,7 @@ export function useTournament() {
       type: 'HYDRATE',
       state: loadFromStorage(),
       leaderboard: loadLeaderboardFromStorage(),
+      undo: loadUndoFromStorage(),
     });
   }, []);
 
@@ -356,9 +411,21 @@ export function useTournament() {
     }
   }, [store.hydrated, store.leaderboard]);
 
+  useEffect(() => {
+    // Survives a reload, so an accidental reset is still recoverable after one.
+    if (!store.hydrated) return;
+    try {
+      if (store.undo) localStorage.setItem(UNDO_KEY, JSON.stringify(store.undo));
+      else localStorage.removeItem(UNDO_KEY);
+    } catch {
+      // storage quota exceeded — silently ignore
+    }
+  }, [store.hydrated, store.undo]);
+
   return {
     state: store.tournament,
     leaderboard: store.leaderboard,
+    undo: store.undo,
     dispatch,
     hydrated: store.hydrated,
   };

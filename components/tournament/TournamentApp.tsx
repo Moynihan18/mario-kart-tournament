@@ -8,9 +8,10 @@ import RoundTransition from './RoundTransition';
 import AddPlayerPanel from './AddPlayerPanel';
 import Leaderboard from './Leaderboard';
 import { rankTournament, tournamentGains } from '@/lib/leaderboard';
+import { describeTournament } from '@/lib/tournament';
 
 export default function TournamentApp() {
-  const { state, leaderboard, dispatch, hydrated } = useTournament();
+  const { state, leaderboard, undo, dispatch, hydrated } = useTournament();
 
   // Rendered on the server and on the first client render alike, while any saved
   // tournament is read back from localStorage.
@@ -28,10 +29,13 @@ export default function TournamentApp() {
       <SignupPhase
         players={state.players}
         leaderboard={leaderboard}
+        undoDescription={undo ? describeTournament(undo) : null}
         onAddPlayer={(name) => dispatch({ type: 'ADD_PLAYER', name })}
         onRemovePlayer={(id) => dispatch({ type: 'REMOVE_PLAYER', id })}
         onStartTournament={(heatSize) => dispatch({ type: 'START_TOURNAMENT', heatSize })}
         onClearLeaderboard={() => dispatch({ type: 'CLEAR_LEADERBOARD' })}
+        onUndoReset={() => dispatch({ type: 'UNDO_RESET' })}
+        onDismissUndo={() => dispatch({ type: 'DISMISS_UNDO' })}
       />
     );
   }

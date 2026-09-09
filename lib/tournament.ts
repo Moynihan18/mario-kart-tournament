@@ -1,4 +1,4 @@
-import { Player, Heat, HeatScore, Round } from './types';
+import { Player, Heat, HeatScore, Round, TournamentState } from './types';
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -139,6 +139,16 @@ export function reconfigureOpenHeats(round: Round, newPlayers: Player[] = []): R
   if (!inserted) heats.push(...rebuilt);
 
   return { ...round, heats };
+}
+
+/** Standalone label for a tournament, e.g. "Round 2 · 9 racers". */
+export function describeTournament(state: TournamentState): string {
+  const racers = `${state.players.length} racer${state.players.length === 1 ? '' : 's'}`;
+  if (state.phase === 'complete') return `Finished tournament · ${racers}`;
+
+  const round = state.rounds[state.currentRoundIndex];
+  if (!round) return racers;
+  return `${round.isFinal ? 'Final round' : `Round ${round.roundNumber}`} · ${racers}`;
 }
 
 export function computeCumulativeScores(rounds: Round[]): Map<string, number> {
