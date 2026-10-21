@@ -200,6 +200,93 @@ export function getAdvancingPlayers(round: Round): Player[] {
   return advancing;
 }
 
+/**
+ * How the default set of qualifiers is chosen at a round transition.
+ * - `perHeat`     — the top N finishers inside each heat.
+ * - `roundPoints` — the N highest scores of the round, across every heat.
+ * - `totalPoints` — the N highest running totals in the tournament so far.
+ */
+export type AdvanceRule = 'perHeat' | 'roundPoints' | 'totalPoints';
+
+/** Everyone who raced this round and is still in the tournament. */
+export function roundField(round: Round, withdrawn: Set<string>): Player[] {
+  const seen = new Set<string>();
+  const field: Player[] = [];
+  for (const heat of round.heats) {
+    for (const player of heat.players) {
+      if (seen.has(player.id) || withdrawn.has(player.id)) continue;
+      seen.add(player.id);
+      field.push(player);
+    }
+  }
+  return field;
+}
+
+export interface RankedRacer {
+  player: Player;
+  score: number;
+}
+
+/**
+ * The whole field ranked by the points the rule judges on, best first —
+ * the other score breaks ties, then the name, so the order never wobbles.
+ */
+export function rankByPoints(
+  round: Round,
+  rule: 'roundPoints' | 'totalPoints',
+  cumulativeScores: Map<string, number>,
+  withdrawn: Set<string>
+): RankedRacer[] {
+  const roundScores = computeRoundScores(round);
+  const primary = (p: Player) =>
+    (rule === 'totalPoints' ? cumulativeScores.get(p.id) : roundScores.get(p.id)) ?? 0;
+  const secondary = (p: Player) =>
+    (rule === 'totalPoints' ? roundScores.get(p.id) : cumulativeScores.get(p.id)) ?? 0;
+
+  return roundField(round, withdrawn)
+    .map((player) => ({ player, score: primary(player), tieBreak: secondary(player) }))
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        b.tieBreak - a.tieBreak ||
+        a.player.name.localeCompare(b.player.name)
+    )
+    .map(({ player, score }) => ({ player, score }));
+}
+
+/** Who the rule puts through, before any hand-picked adjustments. */
+export function selectAdvancing(
+  round: Round,
+  rule: AdvanceRule,
+  count: number,
+  cumulativeScores: Map<string, number>,
+  withdrawn: Set<string>
+): Set<string> {
+  if (rule === 'perHeat') {
+    return new Set(
+      getAdvancingPlayers({ ...round, advanceCount: count })
+        .map((p) => p.id)
+        .filter((id) => !withdrawn.has(id))
+    );
+  }
+  return new Set(
+    rankByPoints(round, rule, cumulativeScores, withdrawn)
+      .slice(0, count)
+      .map((r) => r.player.id)
+  );
+}
+
+/**
+ * Racers level on points with the last qualifier, where the cut-off would
+ * otherwise be settled arbitrarily and is worth pointing out.
+ */
+export function tiedAtCut(ranked: RankedRacer[], count: number): Player[] {
+  if (count < 1 || count >= ranked.length) return [];
+  const cutScore = ranked[count - 1].score;
+  if (ranked[count].score !== cutScore) return [];
+  return ranked.filter((r) => r.score === cutScore).map((r) => r.player);
+}
+
 export function computeRoundScores(round: Round): Map<string, number> {
   const scores = new Map<string, number>();
   for (const heat of round.heats) {
