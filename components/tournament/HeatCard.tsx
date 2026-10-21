@@ -7,6 +7,8 @@ interface HeatCardProps {
   heat: Heat;
   heatNumber: number;
   roundNumber: number;
+  /** Ids of racers who pulled out but are still listed on a frozen grid. */
+  withdrawn: string[];
   isActive: boolean;
   isPast: boolean;
   /** This heat is the one currently being raced — its line-up is frozen. */
@@ -29,6 +31,7 @@ export default function HeatCard({
   heat,
   heatNumber,
   roundNumber,
+  withdrawn,
   isActive,
   isPast,
   isRunning,
@@ -53,10 +56,16 @@ export default function HeatCard({
     return localScores[playerId] ?? '';
   }
 
-  const allFilled = heat.players.every((p) => {
-    const raw = scoreOf(p.id);
-    return raw !== '' && !isNaN(Number(raw)) && Number(raw) >= 0;
-  });
+  // Someone who pulled out mid-heat may simply have no result, so their empty
+  // box doesn't hold the heat up.
+  // No `length` guard: if everyone in a frozen heat pulls out it must still be
+  // lockable, or the round could never finish.
+  const allFilled = heat.players
+    .filter((p) => !withdrawn.includes(p.id))
+    .every((p) => {
+      const raw = scoreOf(p.id);
+      return raw !== '' && !isNaN(Number(raw)) && Number(raw) >= 0;
+    });
 
   function handleScoreInput(playerId: string, value: string) {
     setLocalScores((prev) => ({ ...prev, [playerId]: value }));
@@ -68,16 +77,21 @@ export default function HeatCard({
 
   function handleLock() {
     if (!allFilled) return;
-    // Flush any pending score changes
+    // Flush any pending score changes, leaving a blank box blank rather than
+    // recording it as a zero.
     heat.players.forEach((p) => {
-      const num = Number(scoreOf(p.id));
-      onScoreChange(p.id, num);
+      const raw = scoreOf(p.id);
+      if (raw === '' || isNaN(Number(raw))) return;
+      onScoreChange(p.id, Number(raw));
     });
     onComplete();
   }
 
   // Determine sorted scores for past/completed display
   const sortedScores = [...heat.scores].sort((a, b) => b.score - a.score);
+  // On the grid but never scored — someone who pulled out mid-heat. They would
+  // otherwise disappear from a locked card that still counts them.
+  const unscored = heat.players.filter((p) => !heat.scores.some((s) => s.playerId === p.id));
 
   const cardBg = isActive ? 'bg-mk-surface' : 'bg-mk-surface/50';
   const cardBorder = heat.completed
@@ -115,40 +129,66 @@ export default function HeatCard({
       {/* Players */}
       <div className="px-4 py-3 space-y-2">
         {heat.completed || isPast ? (
-          // Read-only scored view
-          sortedScores.map((hs, rank) => {
-            const player = heat.players.find((p) => p.id === hs.playerId);
-            if (!player) return null;
-            return (
-              <div key={hs.playerId} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+          // Read-only scored view, then anyone who finished without a result
+          <>
+            {sortedScores.map((hs, rank) => {
+              const player = heat.players.find((p) => p.id === hs.playerId);
+              if (!player) return null;
+              return (
+                <div key={hs.playerId} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`text-xs font-bold w-4 text-center ${
+                        rank === 0 ? 'text-mk-yellow' : 'text-white/30'
+                      }`}
+                    >
+                      {rank + 1}
+                    </span>
+                    <span className={`text-sm ${isPast ? 'text-white/50' : 'text-white'}`}>
+                      {player.name}
+                    </span>
+                  </div>
                   <span
-                    className={`text-xs font-bold w-4 text-center ${
-                      rank === 0 ? 'text-mk-yellow' : 'text-white/30'
+                    className={`font-bold text-sm tabular-nums ${
+                      rank === 0 ? 'text-mk-yellow' : isPast ? 'text-white/40' : 'text-white/70'
                     }`}
                   >
-                    {rank + 1}
-                  </span>
-                  <span className={`text-sm ${isPast ? 'text-white/50' : 'text-white'}`}>
-                    {player.name}
+                    {hs.score.toLocaleString()}
                   </span>
                 </div>
-                <span
-                  className={`font-bold text-sm tabular-nums ${
-                    rank === 0 ? 'text-mk-yellow' : isPast ? 'text-white/40' : 'text-white/70'
-                  }`}
-                >
-                  {hs.score.toLocaleString()}
-                </span>
+              );
+            })}
+            {unscored.map((player) => (
+              <div key={player.id} className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-xs font-bold w-4 text-center text-white/20">—</span>
+                  <span className="text-sm text-white/40 line-through truncate">{player.name}</span>
+                  {withdrawn.includes(player.id) && (
+                    <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-amber-400">
+                      Out
+                    </span>
+                  )}
+                </div>
+                <span className="text-sm tabular-nums text-white/30">—</span>
               </div>
-            );
-          })
+            ))}
+          </>
         ) : (
           // Active scoring view
           heat.players.map((player) => (
             <div key={player.id} className="flex items-center justify-between gap-3">
-              <span className="text-sm text-white flex-1 truncate flex items-center gap-1.5">
-                {player.name}
+              <span className="text-sm flex-1 truncate flex items-center gap-1.5">
+                <span className={withdrawn.includes(player.id) ? 'text-white/40 line-through truncate' : 'text-white truncate'}>
+                  {player.name}
+                </span>
+                {withdrawn.includes(player.id) && (
+                  <span
+                    title="Dropped out — still on this grid because the heat is locked or running"
+                    className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-amber-400 bg-amber-400/10 border border-amber-400/30 rounded px-1 py-0.5"
+                  >
+                    Out
+                  </span>
+                )}
                 {player.joinedAtRound === roundNumber && (
                   <span
                     title="Joined mid-tournament"

@@ -48,9 +48,12 @@ export default function TournamentApp() {
         allRounds={state.rounds}
         players={state.players}
         activePlayers={state.activePlayers}
-        onStartNextRound={(heatSize, advanceCount) =>
-          dispatch({ type: 'START_NEXT_ROUND', heatSize, advanceCount })
+        withdrawn={state.withdrawn}
+        onStartNextRound={(heatSize, advanceCount, advancingIds) =>
+          dispatch({ type: 'START_NEXT_ROUND', heatSize, advanceCount, advancingIds })
         }
+        onWithdraw={(id) => dispatch({ type: 'WITHDRAW_PLAYER', id })}
+        onRejoin={(id) => dispatch({ type: 'REJOIN_PLAYER', id })}
         onFinalize={() => dispatch({ type: 'FINALIZE_TOURNAMENT', at: new Date().toISOString() })}
       />
     );
@@ -85,6 +88,7 @@ export default function TournamentApp() {
             players={state.players}
             activePlayers={state.players}
             rounds={state.rounds}
+            withdrawn={state.withdrawn}
           />
 
           <Leaderboard entries={leaderboard} gains={gains} />
@@ -135,6 +139,7 @@ export default function TournamentApp() {
         <BracketView
           rounds={state.rounds}
           currentRoundIndex={state.currentRoundIndex}
+          withdrawn={state.withdrawn}
           onScoreChange={(heatId, playerId, score) =>
             dispatch({ type: 'UPDATE_SCORE', heatId, playerId, score })
           }
@@ -166,6 +171,9 @@ export default function TournamentApp() {
           players={state.players}
           activePlayers={state.activePlayers}
           rounds={state.rounds}
+          withdrawn={state.withdrawn}
+          onWithdraw={(id) => dispatch({ type: 'WITHDRAW_PLAYER', id })}
+          onRejoin={(id) => dispatch({ type: 'REJOIN_PLAYER', id })}
         />
       </div>
     </div>

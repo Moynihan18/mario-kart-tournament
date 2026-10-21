@@ -56,6 +56,11 @@ export interface TournamentState {
   phase: TournamentPhase;
   players: Player[];
   activePlayers: Player[];
+  /**
+   * Ids of racers who pulled out part-way through. They keep the points they
+   * already scored, but take no further part.
+   */
+  withdrawn: string[];
   rounds: Round[];
   currentRoundIndex: number;
 }

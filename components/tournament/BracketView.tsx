@@ -6,6 +6,7 @@ import HeatCard from './HeatCard';
 interface BracketViewProps {
   rounds: Round[];
   currentRoundIndex: number;
+  withdrawn: string[];
   onScoreChange: (heatId: string, playerId: string, score: number) => void;
   onCompleteHeat: (heatId: string) => void;
   onSetActiveHeat: (heatId: string | null) => void;
@@ -15,6 +16,7 @@ interface BracketViewProps {
 export default function BracketView({
   rounds,
   currentRoundIndex,
+  withdrawn,
   onScoreChange,
   onCompleteHeat,
   onSetActiveHeat,
@@ -68,6 +70,7 @@ export default function BracketView({
                     heat={heat}
                     heatNumber={heatIdx + 1}
                     roundNumber={round.roundNumber}
+                    withdrawn={withdrawn}
                     isActive={isCurrent}
                     isPast={isPast}
                     isRunning={isCurrent && round.activeHeatId === heat.id}

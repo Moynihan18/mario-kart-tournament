@@ -14,9 +14,10 @@ import {
   shuffleAssign,
   seedAssign,
   computeCumulativeScores,
-  getAdvancingPlayers,
   addPlayerToHeat,
   reconfigureOpenHeats,
+  withdrawFromRound,
+  isInRound,
 } from '@/lib/tournament';
 import { recordTournament, sortLeaderboard } from '@/lib/leaderboard';
 
@@ -28,6 +29,7 @@ const initialState: TournamentState = {
   phase: 'signup',
   players: [],
   activePlayers: [],
+  withdrawn: [],
   rounds: [],
   currentRoundIndex: -1,
 };
@@ -47,8 +49,17 @@ export type TournamentAction =
   | { type: 'REBALANCE_HEATS' }
   | { type: 'UPDATE_SCORE'; heatId: string; playerId: string; score: number }
   | { type: 'COMPLETE_HEAT'; heatId: string }
+  | { type: 'WITHDRAW_PLAYER'; id: string }
+  | { type: 'REJOIN_PLAYER'; id: string }
   | { type: 'PROCEED_TO_TRANSITION' }
-  | { type: 'START_NEXT_ROUND'; heatSize: 2 | 3 | 4; advanceCount: number }
+  // `advancingIds` is the final say on who goes through, so the pick can be
+  // adjusted by hand instead of following `advanceCount` exactly.
+  | {
+      type: 'START_NEXT_ROUND';
+      heatSize: 2 | 3 | 4;
+      advanceCount: number;
+      advancingIds: string[];
+    }
   // `at` is supplied by the caller so the reducer stays free of clock reads.
   | { type: 'FINALIZE_TOURNAMENT'; at: string }
   | { type: 'CLEAR_LEADERBOARD' }
@@ -93,6 +104,7 @@ function reducer(state: TournamentState, action: TournamentAction): TournamentSt
         ...state,
         phase: 'tournament',
         activePlayers: [...state.players],
+        withdrawn: [],
         rounds: [round],
         currentRoundIndex: 0,
       };
@@ -181,6 +193,39 @@ function reducer(state: TournamentState, action: TournamentAction): TournamentSt
       return { ...state, rounds };
     }
 
+    case 'WITHDRAW_PLAYER': {
+      if (state.withdrawn.includes(action.id)) return state;
+      if (!state.players.some((p) => p.id === action.id)) return state;
+      return {
+        ...state,
+        withdrawn: [...state.withdrawn, action.id],
+        activePlayers: state.activePlayers.filter((p) => p.id !== action.id),
+        // Free up their slot in any heat that hasn't started.
+        rounds:
+          state.phase === 'tournament'
+            ? mapCurrentRound(state, (round) => withdrawFromRound(round, action.id))
+            : state.rounds,
+      };
+    }
+
+    case 'REJOIN_PLAYER': {
+      if (!state.withdrawn.includes(action.id)) return state;
+      const player = state.players.find((p) => p.id === action.id);
+      if (!player) return state;
+      return {
+        ...state,
+        withdrawn: state.withdrawn.filter((id) => id !== action.id),
+        activePlayers: [...state.activePlayers, player],
+        // Slot them back in, unless a running or locked heat still lists them.
+        rounds:
+          state.phase === 'tournament'
+            ? mapCurrentRound(state, (round) =>
+                isInRound(round, action.id) ? round : reconfigureOpenHeats(round, [player])
+              )
+            : state.rounds,
+      };
+    }
+
     case 'PROCEED_TO_TRANSITION': {
       const rounds = mapCurrentRound(state, (round) => ({
         ...round,
@@ -196,7 +241,12 @@ function reducer(state: TournamentState, action: TournamentAction): TournamentSt
         i === state.currentRoundIndex ? currentRound : r
       );
 
-      const advancing = getAdvancingPlayers(currentRound);
+      const withdrawn = new Set(state.withdrawn);
+      const chosen = new Set(action.advancingIds);
+      // The explicit pick wins, but someone who pulled out never goes through.
+      const advancing = state.players.filter((p) => chosen.has(p.id) && !withdrawn.has(p.id));
+      if (advancing.length < 2) return state;
+
       const cumulativeScores = computeCumulativeScores(updatedRounds);
       const heats = seedAssign(advancing, cumulativeScores, action.heatSize);
 
@@ -254,6 +304,7 @@ function normalize(state: TournamentState): TournamentState {
       ...p,
       joinedAtRound: p.joinedAtRound ?? 0,
     })),
+    withdrawn: state.withdrawn ?? [],
     rounds: (state.rounds ?? []).map((r) => ({ ...r, activeHeatId: r.activeHeatId ?? null })),
   };
 }

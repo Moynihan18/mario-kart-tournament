@@ -151,6 +151,29 @@ export function describeTournament(state: TournamentState): string {
   return `${round.isFinal ? 'Final round' : `Round ${round.roundNumber}`} · ${racers}`;
 }
 
+/**
+ * Pull a racer out of the heats that can still change. A heat being raced or
+ * already locked in keeps its line-up — they were on the grid for it — and an
+ * open heat left empty by their exit is dropped.
+ */
+export function withdrawFromRound(round: Round, playerId: string): Round {
+  let changed = false;
+  const heats = round.heats.flatMap((heat) => {
+    if (!isHeatEditable(heat, round.activeHeatId)) return [heat];
+    if (!heat.players.some((p) => p.id === playerId)) return [heat];
+    changed = true;
+    const players = heat.players.filter((p) => p.id !== playerId);
+    if (players.length === 0) return [];
+    return [{ ...heat, players, scores: heat.scores.filter((s) => s.playerId !== playerId) }];
+  });
+  return changed ? { ...round, heats } : round;
+}
+
+/** Whether a racer is already on the grid somewhere in this round. */
+export function isInRound(round: Round, playerId: string): boolean {
+  return round.heats.some((h) => h.players.some((p) => p.id === playerId));
+}
+
 export function computeCumulativeScores(rounds: Round[]): Map<string, number> {
   const totals = new Map<string, number>();
   for (const round of rounds) {
